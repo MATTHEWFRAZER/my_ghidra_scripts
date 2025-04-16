@@ -49,7 +49,6 @@ def is_address_stop_condition(address, register):
 
 def get_xrefs_from_traceback(address, register):
     current = address
-    #print(current, (current == None), "hicheck")
     while current:
         if is_address_stop_condition(current, register):
             return [], current
@@ -61,20 +60,13 @@ def get_xrefs_from_traceback(address, register):
         for ref in ref_iter:
             # TODO: check ref type
             xrefs.append(ref.getFromAddress())
-        #print(xrefs, "check references to")
-        #print("fall_from", fall_from)
         if fall_from:
             if xrefs:
                 xrefs.append(fall_from)
-            # else:
-            #    xrefs = [fall_from]
         if xrefs:
-            #print("xrefs")
             return xrefs, None
         current = instruction.getPrevious().getAddress()
-        #print("new current", current)
 
-    #print("hi2")
     raise Exception("not supposed to be here")
 
 
@@ -91,38 +83,51 @@ def get_next_previous_addresses(address, register):
     fall_from = instruction.getFallFrom()
 
     if is_address_stop_condition(address, register):
-        #print("stop condition", address)
         return [], address
     if xrefs:
-        #print("append")
         xrefs.append(fall_from)
         return xrefs, None
     else:
-        #print("else")
         return get_xrefs_from_traceback(address, register)
 
 
 def find_register_flow(register):
-    stack = [(currentAddress, "")]
-    #print(stack)
+    stack = [(currentAddress, "", "")]
     visited = set()
     while stack:
-        current, indent = stack.pop()
+        current, previous, indent = stack.pop()
+        if previous:
+            print(indent + str(previous) + " <- " + str(current))
+        else:
+            print(indent + str(current) + ":")
         visited.add(current)
         next_addresses, stop_address = get_next_previous_addresses(current, register)
-        #print(next_addresses)
         if not next_addresses:
-            #print("hi", stop_address)
             instruction = currentProgram.getListing().getInstructionAt(stop_address)
-            print(str(current) + " <- " + str(stop_address) + ": " +  str(instruction))
+            print(
+                "  "
+                + indent
+                + str(current)
+                + " <- "
+                + str(stop_address)
+                + ": "
+                + str(instruction)
+            )
             continue
         for address in next_addresses:
             if address not in visited:
-                stack.append((address, indent + "  "))
-                print(indent + str(current) + " <- " + str(address))
+                stack.append((address, current, indent + "  "))
             else:
-                #print(current)
-                print(indent + str(current) + " <- " + str(address) + "(see " + str(address) + " above)")
+                print(
+                    "  "
+                    + indent
+                    + str(current)
+                    + " <- "
+                    + str(address)
+                    + "(see "
+                    + str(address)
+                    + " above)"
+                )
 
 
 register = askString("register: ", "What register flow would you like to calculate")
