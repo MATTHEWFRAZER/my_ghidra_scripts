@@ -72,7 +72,7 @@ def get_xrefs_from_traceback(address, register):
 
 def get_next_previous_addresses(address, register):
     # 1. find instruction that falls into current, trace back until
-    #    we find xrefs or operation that we looking for
+    #    we find xrefs or operation that we are looking for
     # 2. find xrefs
 
     instruction = currentProgram.getListing().getInstructionAt(address)
