@@ -8,8 +8,15 @@
 #
 # @category Analysis
 
+import re
 from ghidra.program.model.pcode import PcodeOp
+from ghidra.program.model.symbol import SymbolType
 
+
+symbolTable = currentProgram.getSymbolTable()
+
+
+pattern = re.compile(r"CALL.*\[(0x[0-9a-fA-F]+)\].*")
 
 ##########################################################################
 # INIT
@@ -37,15 +44,25 @@ indirect_calls = []
 ##########################################################################
 
 def is_call(op):
-    return op.getOpcode() in (PcodeOp.CALL, PcodeOp.CALLIND, PcodeOp.CALLOTHER)  
+    return op.getOpcode() in (PcodeOp.CALL, PcodeOp.CALLIND, PcodeOp.CALLOTHER, PcodeOp.LOAD)  
 
 
 def extract_target(op):
-    # For right now we just take the indirect calls that are deferenced addresses
-    for x in op.getInputs():
-        varnode_type, constant, _ = x.toString().replace("(", "").replace(")","").split(",")
-        if varnode_type == "ram":
-	        return constant.strip()
+
+    try:
+        return op.getInput(0)
+    except:
+        return None
+
+def extract_target_from_text(instr):
+    
+    match = re.search(pattern, instr.toString())
+    if match:
+        try:
+            return match.group(1)
+        except:
+            return None
+
     return None
 
 
@@ -63,84 +80,71 @@ while instr_iter.hasNext() and not monitor.isCancelled():
 
     if instr.getMnemonicString() != "CALL":
 	    continue
-   
+    call_addr = instr.getAddress()
     ops = instr.getPcode()
     for op in ops:
 
         if not is_call(op):
             continue
 
-        target = extract_target(op)
-
-        if target is None:
-            continue
-
-        addr = currentProgram.getAddressFactory().getAddress(target)
-
-        if addr is None:
-            continue
-        
-        call_addr = instr.getAddress()
+        resolved_targets = set()
         ##################################################################
-        # INDIRECT CALL DETECTED
+        # TODO HEURISTIC 1: indirect call of the form CALL [address]
         ##################################################################
+        target = extract_target_from_text(instr)
 
-        func = get_func(addr)
-
-        resolved_targets = [func]
-
-	    # Attempt to retrieve targets
-        ##################################################################
-        # TODO HEURISTIC 1: pointer constant
-        ##################################################################
-        ''''
         try:
-            if target.isConstant():
-
-                addr = toAddr(target.getOffset())
-
-                f = get_func(addr)
-
-                if f is not None:
-                    resolved_targets.append(f.getName())
-		else:
-		    pass
+            if target is not None:
+                addr = currentProgram.getAddressFactory().getAddress(target)
+                
+                if addr is not None:                    
+                    ptrLocation = addr
+                    targetAddrVal = getLong(ptrLocation)
+                    targetAddr = toAddr(targetAddrVal)
+                    func = fm.getFunctionAt(targetAddr)
+                    if func is not None:
+                        resolved_targets.add(func)
+ 
+                    symbols = symbolTable.getSymbols(addr)
+                    for sym in symbols:
+                        if sym.getSymbolType() == SymbolType.LABEL:
+                            resolved_targets.add(sym)
+                            break
 
         except Exception as ex:
             pass
-        '''
         ##################################################################
         # TODO: HEURISTIC 2: memory reference (vtable-like)
         ##################################################################
-        ''''
         try:
-            if target.getOpcode() == PcodeOp.LOAD:
+            target = extract_target(op)
+            
+            base = target.getAddress()
+            
 
-                base = target.getInput(0)
+            if base is not None:
 
-                if base is not None:
+                addr = None
 
-                    addr = None
+                try:
+                    addr = base.getAddress()
+                except:
+                    pass
 
-                    try:
-                        addr = base.getAddress()
-                    except:
-                        pass
+                if addr is not None:
 
-                    if addr is not None:
+                    refs = getReferencesTo(addr)
 
-                        refs = getReferencesTo(addr)
+                    for r in refs:
 
-                        for r in refs:
+                        f = get_func(r.getFromAddress())
 
-                            f = get_func(r.getFromAddress())
-
-                            if f is not None:
-                                resolved_targets.append(f.getName())
+                        if f is not None:
+                            resolved_targets.add(f)
 
         except Exception as ex:
-            pass#print(ex)
-        '''
+            pass
+
         ##################################################################
         # STORE RESULT
         ##################################################################
@@ -168,7 +172,7 @@ for addr, targets in indirect_calls:
 
         print("  Possible targets:")
 
-        for t in set(targets):
+        for t in targets:
             print("    -> {}".format(t))
 
     else:
